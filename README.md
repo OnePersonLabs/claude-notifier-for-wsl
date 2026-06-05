@@ -30,6 +30,20 @@ system events, not wav/TTS playback).
 
 Playback is non-blocking (detached `powershell.exe`), so hooks never stall the CLI.
 
+### Only the root session, not sub-agents
+
+When Claude fans out to sub-agents -- the Task/Agent tool, background agents, or
+parallel worktree agents from an orchestration run -- **each one ending fires its
+own `Stop`**, which would otherwise spam you with a "task complete" per worker.
+The hook filters those out by inspecting the stop payload (transcript path / cwd
+mark sub-agent and worktree sessions, while the interactive root's transcript
+sits at the repo root). The result: a single "task complete" when **your**
+session finishes, no matter how many agents it delegated to along the way.
+
+It's stateless -- every stop self-identifies from its own payload, so there are
+no counters or start/stop ledgers to drift out of sync or leave you silently
+un-notified.
+
 ## Install
 
 From inside WSL:

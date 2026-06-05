@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# claude-super-notifier uninstaller. Removes the hook + config and deregisters
-# it from ~/.claude/settings.json. Leaves the copied wav files in place (delete
-# C:\Users\<you>\.claude\sounds yourself if you want them gone).
+# claude-notifier-for-wsl uninstaller. Removes the hook + config and deregisters
+# the hooks from ~/.claude/settings.json. Leaves the copied wavs under
+# C:\Users\<you>\.claude\sounds (delete that folder yourself if you want them gone).
 set -euo pipefail
 
 CLAUDE_DIR="${HOME}/.claude"

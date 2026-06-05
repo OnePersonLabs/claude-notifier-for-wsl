@@ -13,6 +13,9 @@
 // Usage (one script, mode by argv): claude-sound.js stop|question|permission
 //   stop       -> Stop hook. task-complete.wav + "task complete", OR
 //                 question.wav + the spoken question if my last message was one.
+//                 ONLY alerts for the ROOT session: stops from sub-agents and
+//                 orchestrate-worktree agents are filtered (see isSubagentStop),
+//                 so a fan-out of delegated agents doesn't spam you with dings.
 //   question   -> PreToolUse/AskUserQuestion. question.wav + the question text
 //                 (pulled from the hook's stdin tool_input).
 //   permission -> PermissionRequest. needs-input.wav + "needs input".
@@ -91,6 +94,42 @@ function trailingQuestion(transcriptPath) {
   return null;
 }
 
+// A Stop event fires for EVERY agent session that ends -- not just the user's
+// interactive session. Only alert when the ROOT (the session the user is sitting
+// in front of) finishes; everything else is delegated work whose completion is
+// an internal step, not a moment to pull the user back.
+//
+// Two kinds of non-root stop, detected straight from the payload -- no counters
+// or start/stop ledgers that could leak and mute the alert permanently:
+//   1. Task/Agent-tool sub-agents -- transcript at
+//        <session>/subagents/agent-<id>.jsonl  (isSidechain:true, has agentId).
+//      These usually fire SubagentStop (not Stop) so they rarely reach here, but
+//      background ones can, so we still guard.
+//   2. Orchestrate worktree agents -- separate `claude` processes whose cwd and
+//      transcript live under .claude/worktrees/agent-<id>. Each is a "root" in
+//      its OWN session (isSidechain:false), so only the path betrays it. This is
+//      the case that actually spams when you run a parallel agent orchestration.
+// The true interactive root has neither shape: its transcript is <session>.jsonl
+// under the real repo path. The isSidechain/agentId content check backstops (1)
+// if the path convention ever changes.
+function isSubagentStop(input) {
+  const tp = String((input && input.transcript_path) || "");
+  const cwd = String((input && input.cwd) || "");
+  if (/(^|\/)subagents\//.test(tp)) return true;                                        // (1) path
+  if (/(^|\/)agent-[^/]*\.jsonl$/.test(tp)) return true;                                // (1) basename
+  if (/worktrees[-/]agent-/.test(tp) || /worktrees[-/]agent-/.test(cwd)) return true;   // (2) worktree
+  try {                                                                                 // (1) content backstop
+    if (tp && fs.existsSync(tp)) {
+      const firstLine = fs.readFileSync(tp, "utf-8").split("\n").find((l) => l.trim());
+      if (firstLine) {
+        const o = JSON.parse(firstLine);
+        if (o && (o.isSidechain === true || o.agentId)) return true;
+      }
+    }
+  } catch {}
+  return false;
+}
+
 // Read the hook's stdin payload as JSON; resolve {} on any failure or timeout.
 function readStdin() {
   return new Promise((resolve) => {
@@ -123,6 +162,7 @@ function readStdin() {
   if (mode === "stop") {
     const input = await readStdin();
     if (input.stop_hook_active) process.exit(0); // avoid re-trigger loops
+    if (isSubagentStop(input)) process.exit(0); // only alert when the ROOT agent finishes
     const q = trailingQuestion(input.transcript_path);
     if (q !== null) playAndSpeak(SOUND.question, q || "Claude has a question");
     else playAndSpeak(SOUND.done, "task complete");

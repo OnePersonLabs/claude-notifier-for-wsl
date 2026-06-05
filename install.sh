@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# claude-super-notifier installer (WSL -> Windows).
+# claude-notifier-for-wsl installer (WSL -> Windows).
 #
-# Installs a Claude Code hook that plays a wav + speaks a short line via Windows
-# SAPI text-to-speech when Claude finishes, asks a question, or needs input.
-# Audio goes out through Windows (powershell.exe interop), so it needs no WSL
-# audio stack -- just a working Windows default playback device.
+# Copies the speech hook + wavs into place and registers the Claude Code hooks
+# in ~/.claude/settings.json. Audio plays through Windows via powershell.exe
+# interop, so no WSL audio stack is required -- just a working Windows default
+# playback device. Idempotent: re-running won't duplicate hooks.
 #
 # Run from inside WSL:  ./install.sh
 set -euo pipefail
@@ -18,7 +18,7 @@ command -v powershell.exe >/dev/null 2>&1 || { echo "ERROR: powershell.exe not f
 command -v wslpath        >/dev/null 2>&1 || { echo "ERROR: wslpath not found -- run this inside WSL."; exit 1; }
 command -v node           >/dev/null 2>&1 || { echo "ERROR: node not found on PATH."; exit 1; }
 
-# Resolve the Windows user profile (e.g. C:\Users\alice) and derive sound dirs.
+# Resolve the Windows user profile (e.g. C:\Users\alice) and derive the sound dir.
 WINPROFILE="$(powershell.exe -NoProfile -Command '$env:USERPROFILE' | tr -d '\r')"
 [ -n "$WINPROFILE" ] || { echo "ERROR: could not resolve Windows USERPROFILE."; exit 1; }
 WIN_SOUND_DIR="${WINPROFILE}\\.claude\\sounds"          # Windows form, single backslashes
@@ -36,7 +36,9 @@ cp "$SRC"/sounds/*.wav "$WSL_SOUND_DIR"/
 mkdir -p "$HOOKS_DIR"
 cp "$SRC/hooks/claude-sound.js" "$HOOKS_DIR/claude-sound.js"
 
-# 3. Per-machine config (the hook reads winSoundDir from here) + settings wiring.
+# 3. Per-machine config (the hook reads winSoundDir from here) + idempotent
+#    settings wiring: add our Stop / PreToolUse / PermissionRequest hooks only
+#    if an identical command isn't already registered.
 WIN_SOUND_DIR="$WIN_SOUND_DIR" HOOKS_DIR="$HOOKS_DIR" SETTINGS="$SETTINGS" node <<'NODE'
 const fs = require("fs");
 const path = require("path");
